@@ -42,7 +42,8 @@ const loadCards = () => {
         // Ensure priority is set. If not present (old data), assume it's like a new card (20)
         priority: c.priority ?? 20,
         errors: c.errors ?? 0,
-        archived: c.archived ?? false
+        archived: c.archived ?? false,
+        successCount: c.successCount ?? 0
     }));
 };
 
@@ -260,13 +261,14 @@ function processReview(isCorrect) {
 
     if (isCorrect) {
         // OK Logic
-        if (card.priority > 5) {
-            // If it was a 'difficult' or 'new' card being learned
-            card.priority = Math.max(2, card.priority - 1);
+        if (!card.successCount || card.successCount === 0) {
+            // First time correct
+            card.priority = 5;
         } else {
-            // Already mastered card, keep it low
-            card.priority = 2;
+            // Subsequent correct answers
+            card.priority = Math.max(2, card.priority - 3);
         }
+        card.successCount = (card.successCount || 0) + 1;
     } else {
         // Unknown Logic
         if (card.priority > 5) {
@@ -277,11 +279,26 @@ function processReview(isCorrect) {
             card.priority = 10;
         }
         card.errors += 1;
+        card.successCount = 0; // Reset if forgotten
     }
     // Cap priority to prevent overflow issues excessively
     card.priority = Math.min(100, card.priority);
 
     saveCards();
+}
+
+function archiveCurrentCard() {
+    if (!state.currentCard) return;
+    const card = state.cards.find(c => c.id === state.currentCard.id);
+    if (card) {
+        card.archived = true;
+        saveCards();
+        playSuccessSound();
+        if (window.navigator.vibrate) window.navigator.vibrate([10, 30, 10]);
+        state.sessionCount++;
+        pickNextCard();
+        render();
+    }
 }
 
 function handleCardClick() {
@@ -334,7 +351,8 @@ function addCard(en, ja, bulk = false) {
         ja,
         priority: 20, // New card starts with high priority
         errors: 0,
-        archived: false
+        archived: false,
+        successCount: 0
     };
     state.cards.push(newCard);
     saveCards();
@@ -540,9 +558,14 @@ function renderGame() {
             <button class="btn btn-circle btn-unknown" onclick="if(state.isFlipped) handleResult(false)" ${isDisabled}>
                 <i data-lucide="help-circle" style="width: 32px; height: 32px;"></i>
             </button>
-            <button class="btn btn-next" style="width: auto; padding-left: 40px; padding-right: 40px; ${nextStyle}" onclick="if(state.isFlipped) handleResult(true)" ${isDisabled}>
-                NEXT <i data-lucide="arrow-right"></i>
-            </button>
+            <div style="display: flex; flex-direction: column; gap: 8px; align-items: center;">
+                <button class="btn btn-next" style="width: auto; padding-left: 40px; padding-right: 40px; ${nextStyle}" onclick="if(state.isFlipped) handleResult(true)" ${isDisabled}>
+                    NEXT <i data-lucide="arrow-right"></i>
+                </button>
+                <button class="btn btn-glass" style="width: auto; padding: 4px 12px; font-size: 0.7rem; border-radius: 12px; background: rgba(16, 185, 129, 0.1); color: #059669; border: 1px solid rgba(16, 185, 129, 0.2); ${state.isFlipped ? '' : 'opacity: 0; pointer-events: none;'}" onclick="event.stopPropagation(); archiveCurrentCard()">
+                    <i data-lucide="check-circle" style="width: 12px; height: 12px; vertical-align: middle;"></i> 覚えたよ
+                </button>
+            </div>
         </div>
         ${settingsModal}
     `;
@@ -711,8 +734,8 @@ function renderAllList() {
                 </div>
             </div>
             <div style="display: flex; align-items: center; gap: 8px;">
-                <button class="btn btn-glass" style="width: auto; padding: 6px; background: ${c.archived ? 'var(--accent-primary)' : 'rgba(99, 102, 241, 0.1)'}; color: ${c.archived ? 'white' : 'var(--accent-primary)'}; border: none;" onclick="toggleArchive('${c.id}')" title="${c.archived ? '解禁して出す' : 'もう出さない'}">
-                    <i data-lucide="${c.archived ? 'eye' : 'eye-off'}" style="width: 16px; height: 16px;"></i>
+                <button class="btn btn-glass" style="width: auto; padding: 6px; background: ${c.archived ? 'rgba(255, 255, 255, 0.05)' : 'rgba(99, 102, 241, 0.1)'}; color: ${c.archived ? 'var(--text-secondary)' : 'var(--accent-primary)'}; border: none;" onclick="toggleArchive('${c.id}')" title="${c.archived ? '出す' : 'もう出さない'}">
+                    <i data-lucide="${c.archived ? 'eye-off' : 'eye'}" style="width: 16px; height: 16px;"></i>
                 </button>
                 <button class="btn btn-glass" style="width: auto; padding: 6px; background: rgba(245, 158, 11, 0.1); color: var(--accent-warning); border: none;" onclick="resetPriority('${c.id}')" title="Reset Priority">
                     <i data-lucide="refresh-cw" style="width: 16px; height: 16px;"></i>
